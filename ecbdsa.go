@@ -63,6 +63,61 @@ type BlindSignature struct {
   Kx, s2 *big.Int
 }
 
+type Requester struct {
+  elliptic.Curve
+  // secret stuff
+  a, b, c, d *big.Int
+
+  // shareable stuff
+  // T = ((a·Kx)^-1)·(b·G + Q + d·(c^-1)·P)
+  Tx, Ty  *big.Int
+  // K = ((c·a)^-1)·P
+  Kx, Ky  *big.Int
+}
+
+type Signer struct {
+  elliptic.Curve
+  // secret stuff
+  p, q *big.Int
+
+  // shareable stuff
+  // Q = q·(p^-1)·G
+  Qx, Qy *big.Int
+  // P = (p^-1)·G  
+  Px, Py *big.Int
+
+}
+
+func (bob *Signer) NewSigner() {
+  
+}
+
+// Signs a blinded message
+// Bob signs the blinded hash and returns the signature to Alice: 
+// s1 = p·h2 + q (mod n).
+func (bob *Signer) Sign(h2 *big.Int) *big.Int {
+  c := bob.Curve
+  n := c.Params().N
+
+  s1 := new(big.Int).Mul(bob.p, h2)
+  s1.Add(tmp, bob.q)
+  s1.Mod(tmp, n)
+  return s1
+
+  // verify that R matches our secret k
+  // R_ := ScalarBaseMult(sState.k)
+  // if !KeysEqual(R, R_) {
+  //   panic("unknown R")
+  // }
+
+  // // signer generates signature (§4.3)
+  // sHat := new(big.Int).Mul(sState.d, mHat)
+  // sHat.Add(sHat, sState.k)
+  // sHat.Mod(sHat, params.N)
+
+  // return sHat
+}
+
 // Public returns the public key corresponding to priv.
 func (priv *PrivateKey) Public() crypto.PublicKey {
   return &priv.PublicKey
