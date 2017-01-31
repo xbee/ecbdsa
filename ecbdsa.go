@@ -75,6 +75,57 @@ type Requester struct {
   Kx, Ky  *big.Int
 }
 
+func NewRequester(e elliptic.Curve, a, b, c, d *big.Int) *Requester {
+  alice = new(Requester)
+  alice.Curve = e
+  n := e.params().N
+  alice.a, alice.b, alice.c, alice.d = a, b, c, d
+
+  return alice
+}
+
+
+// 3. Alice computes K = (c·a) -1 ·P and 
+// public key T = (a·Kx) -1 ·(b·G + Q + d·c -1 ·P).
+func (alice *Requester) Prepare(Px, Py, Qx, Qy *big.Int) {
+  c := alice.Curve
+  n := c.params().N
+  tmp := new(big.Int)
+  Kx, Ky := c.ScalarMult(Px, Py, tmp.Mul(alice.c, alice.a).ModInverse(tmp, n).Bytes())
+  alice.Kx, alice.Ky = Kx, Ky
+
+  Tx, Ty := c.ScalarBaseMult(alice.b.Bytes())
+  Tx, Ty = c.Add(Tx, Ty, Qx, Qy)
+  x, y = c.ScalarMult(Px, Py, new(big.Int).Mul(alice.d, new(big.Int).ModInverse(alice.c, n)).Bytes())
+  Tx, Ty = c.Add(Tx, Ty, x, y)
+  tmp = new(big.Int)
+  Tx, Ty = c.ScalarMult(Tx, Ty, tmp.Mul(alice.a, Kx).ModInverse(tmp, n).Bytes())
+  alice.Tx, alice.Ty = Tx, Ty
+  return 
+}
+
+
+// 5. Alice blinds the hash and sends h2 = a·h + b (mod n) to Bob.
+func (alice *Requester) BlindMessage(m []byte) *big.Int {
+  // Alice computes the hash h of her message.
+  n := alice.Curve.params().N
+  h := hashToInt(hash(m), alice.Curve)
+  h2 := new(big.Int).Mul(alice.a, h)
+  h2.Add(h2, alice.b)
+  h2.Mod(h2, n)
+  return h2
+}
+
+// 8. Alice unblinds the signature: s 2 = c·s1 + d (mod n).
+func (alice *Requester) UnblindMessage(s1 *big.Int) *big.Int {
+  n := alice.Curve.params().N
+
+  s2 := new(big.Int).Mul(alice.c, s1)
+  s2.Add(s2, alice.d)
+  s2.Mod(s2, n)
+  return s2
+}
+
 type Signer struct {
   elliptic.Curve
   // secret stuff
@@ -88,8 +139,18 @@ type Signer struct {
 
 }
 
-func (bob *Signer) NewSigner() {
-  
+func NewSigner(e elliptic.Curve, p, q *big.Int) *Signer {
+  bob := new(Signer)
+  bob.Curve = e
+  n := e.params().N
+  // 2. Bob chooses random numbers p, q within [1, n – 1]
+  // and sends two EC points to Alice: P = (p -1 ·G) and Q = (q·p -1 ·G).
+  bob.p, bob.q = p, q
+  // P = ((p^-1)·G)
+  bob.Px, bob.Py := e.ScalarBaseMult(new(big.Int).ModInverse(bob.p, n).Bytes())
+  // Q = (q·(p^-1)·G)
+  bob.Qx, bob.Qy := e.ScalarBaseMult(new(big.Int).Mul(bob.q, new(big.Int).ModInverse(bob.p, n)).Bytes())
+  return bob
 }
 
 // Signs a blinded message
@@ -100,8 +161,8 @@ func (bob *Signer) Sign(h2 *big.Int) *big.Int {
   n := c.Params().N
 
   s1 := new(big.Int).Mul(bob.p, h2)
-  s1.Add(tmp, bob.q)
-  s1.Mod(tmp, n)
+  s1.Add(s1, bob.q)
+  s1.Mod(s1, n)
   return s1
 
   // verify that R matches our secret k
