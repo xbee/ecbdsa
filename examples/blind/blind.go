@@ -5,8 +5,8 @@ import "fmt"
 import "github.com/conseweb/ecbdsa"
 
 func main() {
-	signer := new(ecbdsa.BlindSignerState)
-	requester := new(ecbdsa.BlindRequesterState)
+	signer := new(ecbdsa.Signer)
+	requester := new(ecbdsa.Requester)
 
 	// requester: message that needs to be ecbdsa signed
 	m, err := ecbdsa.RandFieldElement(rand.Reader)
@@ -14,7 +14,7 @@ func main() {
 	fmt.Printf("m = %x\n", m)
 
 	// requester: ask signer to start the protocol
-	Q, R := ecbdsa.BlindSession(signer)
+	Q, R := ecbdsa.NewSession(signer)
 	fmt.Println("")
 
 	// requester: ecbdsa message

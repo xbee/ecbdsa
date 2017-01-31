@@ -4,7 +4,7 @@ import "crypto/ecdsa"
 import "crypto/rand"
 import "math/big"
 
-type BlindRequesterState struct {
+type Requester struct {
 	// secret stuff
 	a, b, bInv, c *big.Int
 
@@ -15,7 +15,7 @@ type BlindRequesterState struct {
 }
 
 // Calculates a blinded version of message m
-func BlindMessage(rState *BlindRequesterState, Q, R *ecdsa.PublicKey, m *big.Int) *big.Int {
+func BlindMessage(rState *Requester, Q, R *ecdsa.PublicKey, m *big.Int) *big.Int {
 	crv := Secp256k1().Params()
 
 	// generate F which is not equal to O (§4.2)
@@ -23,11 +23,11 @@ func BlindMessage(rState *BlindRequesterState, Q, R *ecdsa.PublicKey, m *big.Int
 	F := new(ecdsa.PublicKey)
 	for F.X == nil && F.Y == nil {
 		// requester's three blinding factors (§4.2)
-		rState.a, err = RandFieldElement(rand.Reader)
+		rState.a, err = RandFieldElement(crv, rand.Reader)
 		maybePanic(err)
-		rState.b, err = RandFieldElement(rand.Reader)
+		rState.b, err = RandFieldElement(crv, rand.Reader)
 		maybePanic(err)
-		rState.c, err = RandFieldElement(rand.Reader)
+		rState.c, err = RandFieldElement(crv, rand.Reader)
 		maybePanic(err)
 		rState.bInv = new(big.Int).ModInverse(rState.b, crv.N)
 
@@ -54,7 +54,7 @@ func BlindMessage(rState *BlindRequesterState, Q, R *ecdsa.PublicKey, m *big.Int
 }
 
 // Extract true signature from the ecbdsa signature
-func UnblindMessage(rState *BlindRequesterState, sHat *big.Int) *BlindSignature {
+func UnblindMessage(rState *Requester, sHat *big.Int) *BlindSignature {
 	crv := Secp256k1().Params()
 
 	// requester extracts the real signature (§4.4)

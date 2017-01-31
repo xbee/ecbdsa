@@ -5,7 +5,7 @@ import "crypto/rand"
 import "fmt"
 import "math/big"
 
-type BlindSignerState struct {
+type Signer struct {
 	// secret stuff
 	d, k *big.Int
 
@@ -15,7 +15,7 @@ type BlindSignerState struct {
 
 // Request that the signer start a ecbdsa signature protocol.  Returns
 // the signer's public key and an EC point named R.
-func BlindSession(sState *BlindSignerState) (*ecdsa.PublicKey, *ecdsa.PublicKey) {
+func NewSession(sState *Signer) (*ecdsa.PublicKey, *ecdsa.PublicKey) {
 
 	// generate signer's private & public key pair
 	if sState.Q == nil {
@@ -36,7 +36,7 @@ func BlindSession(sState *BlindSignerState) (*ecdsa.PublicKey, *ecdsa.PublicKey)
 }
 
 // Signs a blinded message
-func BlindSign(sState *BlindSignerState, R *ecdsa.PublicKey, mHat *big.Int) *big.Int {
+func BlindSign(sState *Signer, R *ecdsa.PublicKey, mHat *big.Int) *big.Int {
 	crv := Secp256k1().Params()
 
 	// verify that R matches our secret k
