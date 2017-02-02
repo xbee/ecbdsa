@@ -8,7 +8,7 @@
 // This implementation  derives the nonce from an AES-CTR CSPRNG keyed by
 // ChopMD(256, SHA2-512(priv.D || entropy || hash)). The CSPRNG key is IRO by
 // a result of Coron; the AES-CTR stream is IRO under standard assumptions.
-package ecdsa
+package ecbdsa
 
 // References:
 //   [NSA]: Suite B implementer's guide to FIPS 186-3,
@@ -60,19 +60,22 @@ type ecdsaSignature struct {
 }
 
 type BlindSignature struct {
-  Kx, s2 *big.Int
+  S *big.Int // called F and s in the paper
+  F *PublicKey
 }
 
 type Requester struct {
   elliptic.Curve
   // secret stuff
-  a, b, c, d *big.Int
+  a, b, c *big.Int
+  bInv *big.Int
+
 
   // shareable stuff
-  // T = ((a·Kx)^-1)·(b·G + Q + d·(c^-1)·P)
-  Tx, Ty  *big.Int
-  // K = ((c·a)^-1)·P
-  Kx, Ky  *big.Int
+  F    *ecdsa.PublicKey
+  X0   *big.Int //
+  // Mhat *big.Int // called m̂ in the paper
+
 }
 
 func NewRequester(e elliptic.Curve, a, b, c, d *big.Int) *Requester {
@@ -84,22 +87,33 @@ func NewRequester(e elliptic.Curve, a, b, c, d *big.Int) *Requester {
   return alice
 }
 
+// Public returns the public key corresponding to priv.
+func (alice *Requester) Public() PublicKey {
+  pub := new(PublicKey)
+  pub.Curve = alice.Curve
+  pub.X, pub.Y = alice.Tx, alice.Ty
+  return pub
+}
+
 
 // 3. Alice computes K = (c·a) -1 ·P and 
 // public key T = (a·Kx) -1 ·(b·G + Q + d·c -1 ·P).
-func (alice *Requester) Prepare(Px, Py, Qx, Qy *big.Int) {
-  c := alice.Curve
-  n := c.params().N
+func (alice *Requester) GenerateKeys(Px, Py, Qx, Qy *big.Int) {
+  e := alice.Curve
+  n := e.params().N
+
+  // K = ((c·a)^-1)·P and 
   tmp := new(big.Int)
-  Kx, Ky := c.ScalarMult(Px, Py, tmp.Mul(alice.c, alice.a).ModInverse(tmp, n).Bytes())
+  Kx, Ky := e.ScalarMult(Px, Py, tmp.Mul(alice.c, alice.a).ModInverse(tmp, n).Bytes())
   alice.Kx, alice.Ky = Kx, Ky
 
-  Tx, Ty := c.ScalarBaseMult(alice.b.Bytes())
-  Tx, Ty = c.Add(Tx, Ty, Qx, Qy)
-  x, y = c.ScalarMult(Px, Py, new(big.Int).Mul(alice.d, new(big.Int).ModInverse(alice.c, n)).Bytes())
-  Tx, Ty = c.Add(Tx, Ty, x, y)
+  // public key T = ((a·Kx)^-1)·(b·G + Q + d·(c^-1)·P)
+  Tx, Ty := e.ScalarBaseMult(alice.b.Bytes())
+  Tx, Ty = e.Add(Tx, Ty, Qx, Qy)
+  x, y = e.ScalarMult(Px, Py, new(big.Int).Mul(alice.d, new(big.Int).ModInverse(alice.c, n)).Bytes())
+  Tx, Ty = e.Add(Tx, Ty, x, y)
   tmp = new(big.Int)
-  Tx, Ty = c.ScalarMult(Tx, Ty, tmp.Mul(alice.a, Kx).ModInverse(tmp, n).Bytes())
+  Tx, Ty = e.ScalarMult(Tx, Ty, tmp.Mul(alice.a, Kx).ModInverse(tmp, n).Bytes())
   alice.Tx, alice.Ty = Tx, Ty
   return 
 }
@@ -116,14 +130,17 @@ func (alice *Requester) BlindMessage(m []byte) *big.Int {
   return h2
 }
 
-// 8. Alice unblinds the signature: s 2 = c·s1 + d (mod n).
-func (alice *Requester) UnblindMessage(s1 *big.Int) *big.Int {
+// 8. Alice unblinds the signature: s2 = c·s1 + d (mod n).
+func (alice *Requester) UnblindMessage(s1 *big.Int) (r, s *big.Int, err error) {
   n := alice.Curve.params().N
 
   s2 := new(big.Int).Mul(alice.c, s1)
   s2.Add(s2, alice.d)
   s2.Mod(s2, n)
-  return s2
+  // TODO: need to check s2
+  r, s = alice.Kx, s2
+  err = nil
+  return 
 }
 
 type Signer struct {
@@ -139,18 +156,33 @@ type Signer struct {
 
 }
 
-func NewSigner(e elliptic.Curve, p, q *big.Int) *Signer {
+func NewSigner(e elliptic.Curve, p, q *big.Int) (*Signer, error) {
   bob := new(Signer)
   bob.Curve = e
   n := e.params().N
+
+  k, err := RandFieldElement(c, rand)
+  if err != nil {
+    return nil, err
+  }
   // 2. Bob chooses random numbers p, q within [1, n – 1]
   // and sends two EC points to Alice: P = (p -1 ·G) and Q = (q·p -1 ·G).
   bob.p, bob.q = p, q
+  
+  return bob
+}
+
+
+func (bob *Signer) GenerateKeys() {
+  e := alice.Curve
+  n := e.params().N
+
   // P = ((p^-1)·G)
   bob.Px, bob.Py := e.ScalarBaseMult(new(big.Int).ModInverse(bob.p, n).Bytes())
   // Q = (q·(p^-1)·G)
-  bob.Qx, bob.Qy := e.ScalarBaseMult(new(big.Int).Mul(bob.q, new(big.Int).ModInverse(bob.p, n)).Bytes())
-  return bob
+  bob.Qx, bob.Qy := e.ScalarBaseMult(new(big.Int).Mul(bob.q, new(big.Int).ModInverse(bob.p, n)).Bytes()) 
+  
+  return 
 }
 
 // Signs a blinded message
@@ -179,6 +211,24 @@ func (bob *Signer) Sign(h2 *big.Int) *big.Int {
   // return sHat
 }
 
+func BlindVerify(Q *ecdsa.PublicKey, msg []byte, sig *BlindSignature) bool {
+  e := Secp256k1()
+  crv := e.Params()
+  M := hashToInt(msg, e)
+
+  // onlooker verifies signature (§4.5)
+  sG := e.ScalarBaseMult(sig.S)
+  rm := new(big.Int).Mul(new(big.Int).Mod(sig.F.X, crv.N), M)
+  rm.Mod(rm, crv.N)
+  rmQ := e.ScalarMult(rm, Q)
+  rmQplusF := e.Add(rmQ, sig.F)
+
+  fmt.Println("")
+  fmt.Printf("sG      = %x\n", sG.X)
+  fmt.Printf("rmQ + F = %x\n", rmQplusF.X)
+  return KeysEqual(sG, rmQplusF)
+}
+
 // Public returns the public key corresponding to priv.
 func (priv *PrivateKey) Public() crypto.PublicKey {
   return &priv.PublicKey
@@ -199,9 +249,9 @@ func (priv *PrivateKey) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts)
 
 var one = new(big.Int).SetInt64(1)
 
-// randFieldElement returns a random element of the field underlying the given
+// RandFieldElement returns a random element of the field underlying the given
 // curve using the procedure given in [NSA] A.2.1.
-func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) {
+func RandFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) {
   params := c.Params()
   b := make([]byte, params.BitSize/8+8)
   _, err = io.ReadFull(rand, b)
@@ -218,7 +268,7 @@ func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) 
 
 // GenerateKey generates a public and private key pair.
 func GenerateKey(c elliptic.Curve, rand io.Reader) (*PrivateKey, error) {
-  k, err := randFieldElement(c, rand)
+  k, err := RandFieldElement(c, rand)
   if err != nil {
     return nil, err
   }
@@ -310,7 +360,7 @@ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err err
   var k, kInv *big.Int
   for {
     for {
-      k, err = randFieldElement(c, csprng)
+      k, err = RandFieldElement(c, csprng)
       if err != nil {
         r = nil
         return
