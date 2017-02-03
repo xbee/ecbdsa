@@ -5,8 +5,8 @@ import "fmt"
 import "github.com/conseweb/ecbdsa"
 
 func main() {
-	signer := new(ecbdsa.Signer)
-	requester := new(ecbdsa.Requester)
+	signer := ecbdsa.NewSigner()
+	requester := ecbdsa.NewRequester()
 
 	// requester: message that needs to be ecbdsa signed
 	m, err := ecbdsa.RandFieldElement(rand.Reader)

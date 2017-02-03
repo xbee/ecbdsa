@@ -43,146 +43,139 @@ const (
   aesIV = "IV for ECBDSA CTR"
 )
 
-// PublicKey represents an ECDSA public key.
-type PublicKey struct {
-  elliptic.Curve
-  X, Y *big.Int
-}
-
-// PrivateKey represents a ECDSA private key.
-type PrivateKey struct {
-  PublicKey
-  D *big.Int
-}
 
 type ecdsaSignature struct {
   R, S *big.Int
 }
 
+func KeysEqual(a, b *ecdsa.PublicKey) bool {
+  return a.X.Cmp(b.X) == 0 && a.Y.Cmp(b.Y) == 0
+}
+
 type BlindSignature struct {
   S *big.Int // called F and s in the paper
-  F *PublicKey
+  F *ecdsa.PublicKey
 }
 
 type Requester struct {
-  elliptic.Curve
   // secret stuff
   a, b, c *big.Int
   bInv *big.Int
 
-
   // shareable stuff
-  F    *ecdsa.PublicKey
-  X0   *big.Int //
-  // Mhat *big.Int // called m̂ in the paper
+  F   *ecdsa.PublicKey
+  Mb  *big.Int // called m̂ in the paper
 
 }
 
-func NewRequester(e elliptic.Curve, a, b, c, d *big.Int) *Requester {
-  alice = new(Requester)
-  alice.Curve = e
-  n := e.params().N
-  alice.a, alice.b, alice.c, alice.d = a, b, c, d
+// rand select a, b, c in [0, n-1]
+func NewRequester() *Requester {
+  crv := Secp256k1().Params()
+
+  alice := new(Requester)
+
+  // requester's three blinding factors (§4.2)
+  alice.a, err = RandFieldElement(crv, rand.Reader)
+  maybePanic(err)
+  alice.b, err = RandFieldElement(crv, rand.Reader)
+  maybePanic(err)
+  alice.c, err = RandFieldElement(crv, rand.Reader)
+  maybePanic(err)
+  alice.bInv = new(big.Int).ModInverse(alice.b, crv.N)
 
   return alice
 }
 
 // Public returns the public key corresponding to priv.
-func (alice *Requester) Public() PublicKey {
-  pub := new(PublicKey)
-  pub.Curve = alice.Curve
-  pub.X, pub.Y = alice.Tx, alice.Ty
-  return pub
+func (alice *Requester) Public() *ecdsa.PublicKey {
+  return alice.F
 }
 
 
-// 3. Alice computes K = (c·a) -1 ·P and 
-// public key T = (a·Kx) -1 ·(b·G + Q + d·c -1 ·P).
-func (alice *Requester) GenerateKeys(Px, Py, Qx, Qy *big.Int) {
-  e := alice.Curve
-  n := e.params().N
+// Alice computes F = (b^-1)R + a(b^-1)Q + cG
+func (alice *Requester) GenerateBlindKey(R, Q *ecdsa.PublicKey) {
 
-  // K = ((c·a)^-1)·P and 
-  tmp := new(big.Int)
-  Kx, Ky := e.ScalarMult(Px, Py, tmp.Mul(alice.c, alice.a).ModInverse(tmp, n).Bytes())
-  alice.Kx, alice.Ky = Kx, Ky
+  // generate F which is not equal to O (§4.2)
+  var err error
+  F := new(ecdsa.PublicKey)
+  for F.X == nil && F.Y == nil {
+    // requester calculates point F (§4.2)
+    // F = (b^-1)R + a(b^-1)Q + cG
+    abInv := new(big.Int).Mul(alice.a, alice.bInv)
+    abInv.Mod(abInv, crv.N)
+    bInvR := ScalarMult(alice.bInv, R)
+    abInvQ := ScalarMult(abInv, Q)
+    cG := ScalarBaseMult(alice.c)
+    F = Add(bInvR, abInvQ)
+    F = Add(F, cG)
+  }
+  alice.F = F
 
-  // public key T = ((a·Kx)^-1)·(b·G + Q + d·(c^-1)·P)
-  Tx, Ty := e.ScalarBaseMult(alice.b.Bytes())
-  Tx, Ty = e.Add(Tx, Ty, Qx, Qy)
-  x, y = e.ScalarMult(Px, Py, new(big.Int).Mul(alice.d, new(big.Int).ModInverse(alice.c, n)).Bytes())
-  Tx, Ty = e.Add(Tx, Ty, x, y)
-  tmp = new(big.Int)
-  Tx, Ty = e.ScalarMult(Tx, Ty, tmp.Mul(alice.a, Kx).ModInverse(tmp, n).Bytes())
-  alice.Tx, alice.Ty = Tx, Ty
   return 
 }
 
 
 // 5. Alice blinds the hash and sends h2 = a·h + b (mod n) to Bob.
-func (alice *Requester) BlindMessage(m []byte) *big.Int {
+func (alice *Requester) BlindMessage(m *big.Int) *big.Int {
   // Alice computes the hash h of her message.
-  n := alice.Curve.params().N
-  h := hashToInt(hash(m), alice.Curve)
-  h2 := new(big.Int).Mul(alice.a, h)
-  h2.Add(h2, alice.b)
-  h2.Mod(h2, n)
-  return h2
+  crv := Secp256k1().Params()
+
+  // calculate f and m̂
+  f := new(big.Int).Mod(alice.F.X, crv.N)
+  mHat := new(big.Int).Mul(alice.b, f)
+  mHat.Mul(mHat, m)
+  mHat.Add(mHat, alice.a)
+  mHat.Mod(mHat, crv.N)
+  alice.Mb = mHat
+
+  return alice.Mb
 }
 
-// 8. Alice unblinds the signature: s2 = c·s1 + d (mod n).
-func (alice *Requester) UnblindMessage(s1 *big.Int) (r, s *big.Int, err error) {
-  n := alice.Curve.params().N
+// 8. Alice unblinds the signature: s = (b^-1)s’ + c.
+func (alice *Requester) UnblindMessage(sHat *big.Int) (*BlindSignature) {
+  crv := Secp256k1().Params()
 
-  s2 := new(big.Int).Mul(alice.c, s1)
-  s2.Add(s2, alice.d)
-  s2.Mod(s2, n)
-  // TODO: need to check s2
-  r, s = alice.Kx, s2
-  err = nil
-  return 
+  // requester extracts the real signature (§4.4)
+  s := new(big.Int).Mul(alice.bInv, sHat)
+  s.Add(s, alice.c)
+  s.Mod(s, crv.N)
+  sig := &BlindSignature{S: s, F: alice.F}
+  return sig
 }
 
 type Signer struct {
-  elliptic.Curve
   // secret stuff
-  p, q *big.Int
+  d, k *big.Int
 
   // shareable stuff
-  // Q = q·(p^-1)·G
-  Qx, Qy *big.Int
-  // P = (p^-1)·G  
-  Px, Py *big.Int
-
+  Q, R *PublicKey
 }
 
 func NewSigner(e elliptic.Curve, p, q *big.Int) (*Signer, error) {
   bob := new(Signer)
-  bob.Curve = e
-  n := e.params().N
 
-  k, err := RandFieldElement(c, rand)
-  if err != nil {
-    return nil, err
-  }
-  // 2. Bob chooses random numbers p, q within [1, n – 1]
-  // and sends two EC points to Alice: P = (p -1 ·G) and Q = (q·p -1 ·G).
-  bob.p, bob.q = p, q
+  keys, err := GenerateKey(rand.Reader)
+  maybePanic(err)
+  bob.d = keys.D
+  bob.Q = &keys.PublicKey
+  fmt.Printf("Signer:\t%x\n\t%x\n", bob.d, bob.Q.X)
   
   return bob
 }
 
 
-func (bob *Signer) GenerateKeys() {
-  e := alice.Curve
-  n := e.params().N
-
-  // P = ((p^-1)·G)
-  bob.Px, bob.Py := e.ScalarBaseMult(new(big.Int).ModInverse(bob.p, n).Bytes())
-  // Q = (q·(p^-1)·G)
-  bob.Qx, bob.Qy := e.ScalarBaseMult(new(big.Int).Mul(bob.q, new(big.Int).ModInverse(bob.p, n)).Bytes()) 
+func (bob *Signer) GetSessionKey() *PublicKey {
+  // generate k and R for each user request (§4.2)
+  if bob.k == nil {
+    request, err := GenerateKey(rand.Reader)
+    maybePanic(err)
+    bob.k = request.D
+    R := &request.PublicKey
+    return R
+  }
   
-  return 
+  R := ScalarBaseMult(bob.k)
+  return R 
 }
 
 // Signs a blinded message
@@ -267,7 +260,8 @@ func RandFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) 
 }
 
 // GenerateKey generates a public and private key pair.
-func GenerateKey(c elliptic.Curve, rand io.Reader) (*PrivateKey, error) {
+func GenerateKey(rand io.Reader) (*PrivateKey, error) {
+  c := Secp256k1();
   k, err := RandFieldElement(c, rand)
   if err != nil {
     return nil, err
@@ -434,6 +428,34 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
   }
   x.Mod(x, N)
   return x.Cmp(r) == 0
+}
+
+// Multiplies the base G by a large integer.  The resulting
+// point is represented as an ECDSA public key since that's
+// typically how they're used.
+func ScalarBaseMult(k *big.Int) *ecdsa.PublicKey {
+  key := new(ecdsa.PublicKey)
+  key.Curve = Secp256k1()
+  key.X, key.Y = Secp256k1().ScalarBaseMult(k.Bytes())
+  return key
+}
+
+// Multiply a large integer and a point.  The resulting point
+// is represented as an ECDSA public key.
+func ScalarMult(k *big.Int, B *ecdsa.PublicKey) *ecdsa.PublicKey {
+  key := new(ecdsa.PublicKey)
+  key.Curve = Secp256k1()
+  key.X, key.Y = Secp256k1().ScalarMult(B.X, B.Y, k.Bytes())
+  return key
+}
+
+// Adds two points to create a third.  Points are represented as
+// ECDSA public keys.
+func Add(a, b *ecdsa.PublicKey) *ecdsa.PublicKey {
+  key := new(ecdsa.PublicKey)
+  key.Curve = Secp256k1()
+  key.X, key.Y = Secp256k1().Add(a.X, a.Y, b.X, b.Y)
+  return key
 }
 
 type zr struct {
