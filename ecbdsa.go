@@ -1,31 +1,27 @@
-// Copyright 2011 The Go Authors. All rights reserved.
+// Copyright 2017  Author: xbee All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package ecdsa implements the Elliptic Curve Digital Signature Algorithm, as
-// defined in FIPS 186-3.
+// Package ecbdsa implements the Elliptic Curve Blind Digital Signature Algorithm, as
+// defined in 
 //
-// This implementation  derives the nonce from an AES-CTR CSPRNG keyed by
-// ChopMD(256, SHA2-512(priv.D || entropy || hash)). The CSPRNG key is IRO by
-// a result of Coron; the AES-CTR stream is IRO under standard assumptions.
+
 package ecbdsa
 
-// References:
-//   [NSA]: Suite B implementer's guide to FIPS 186-3,
-//     http://www.nsa.gov/ia/_files/ecdsa.pdf
-//   [SECG]: SECG, SEC1
-//     http://www.secg.org/sec1-v2.pdf
 
 import (
-  "crypto"
-  "crypto/aes"
-  "crypto/cipher"
+  // "crypto"
+  // "crypto/aes"
+  // "crypto/cipher"
   "crypto/elliptic"
-  "crypto/sha512"
-  "encoding/asn1"
+  "crypto/ecdsa"
+  // "crypto/sha512"
+  // "encoding/asn1"
   "errors"
   "io"
+  "crypto/rand"
   "math/big"
+  "fmt"
 )
 
 // A invertible implements fast inverse mod Curve.Params().N
@@ -39,14 +35,6 @@ type combinedMult interface {
   CombinedMult(bigX, bigY *big.Int, baseScalar, scalar []byte) (x, y *big.Int)
 }
 
-const (
-  aesIV = "IV for ECBDSA CTR"
-)
-
-
-type ecdsaSignature struct {
-  R, S *big.Int
-}
 
 func KeysEqual(a, b *ecdsa.PublicKey) bool {
   return a.X.Cmp(b.X) == 0 && a.Y.Cmp(b.Y) == 0
@@ -74,12 +62,15 @@ func NewRequester() *Requester {
 
   alice := new(Requester)
 
+  // TODO: need to generate pub and priv keys
+
   // requester's three blinding factors (§4.2)
-  alice.a, err = RandFieldElement(crv, rand.Reader)
+  var err error
+  alice.a, err = RandFieldElement(rand.Reader)
   maybePanic(err)
-  alice.b, err = RandFieldElement(crv, rand.Reader)
+  alice.b, err = RandFieldElement(rand.Reader)
   maybePanic(err)
-  alice.c, err = RandFieldElement(crv, rand.Reader)
+  alice.c, err = RandFieldElement(rand.Reader)
   maybePanic(err)
   alice.bInv = new(big.Int).ModInverse(alice.b, crv.N)
 
@@ -95,8 +86,9 @@ func (alice *Requester) Public() *ecdsa.PublicKey {
 // Alice computes F = (b^-1)R + a(b^-1)Q + cG
 func (alice *Requester) GenerateBlindKey(R, Q *ecdsa.PublicKey) {
 
+  crv := Secp256k1().Params()
   // generate F which is not equal to O (§4.2)
-  var err error
+  // var err error
   F := new(ecdsa.PublicKey)
   for F.X == nil && F.Y == nil {
     // requester calculates point F (§4.2)
@@ -115,7 +107,7 @@ func (alice *Requester) GenerateBlindKey(R, Q *ecdsa.PublicKey) {
 }
 
 
-// 5. Alice blinds the hash and sends h2 = a·h + b (mod n) to Bob.
+// 5. Alice blinds the hash and sends m’ = bfm + a to Bob.
 func (alice *Requester) BlindMessage(m *big.Int) *big.Int {
   // Alice computes the hash h of her message.
   crv := Secp256k1().Params()
@@ -151,7 +143,7 @@ type Signer struct {
   Q, R *ecdsa.PublicKey
 }
 
-func NewSigner(e elliptic.Curve, p, q *big.Int) (*Signer, error) {
+func NewSigner() *Signer {
   bob := new(Signer)
 
   // generate signer's private & public key pair
@@ -170,8 +162,8 @@ func (bob *Signer) GenerateSessionKeyPair() *ecdsa.PublicKey {
   request, err := GenerateKey(rand.Reader)
   maybePanic(err)
   bob.k = request.D
-  R := &request.PublicKey
-  return R
+  bob.R = &request.PublicKey
+  return bob.R
 }
 
 // Signs a blinded message
@@ -187,17 +179,17 @@ func (bob *Signer) BlindSign(mHat *big.Int) *big.Int {
   }
 
   // signer generates signature (§4.3)
-  sHat := new(big.Int).Mul(sState.d, mHat)
-  sHat.Add(sHat, sState.k)
+  sHat := new(big.Int).Mul(bob.d, mHat)
+  sHat.Add(sHat, bob.k)
   sHat.Mod(sHat, crv.N)
 
   return sHat
 }
 
-func BlindVerify(Q *ecdsa.PublicKey, msg []byte, sig *BlindSignature) bool {
+func BlindVerify(Q *ecdsa.PublicKey, M *big.Int, sig *BlindSignature) bool {
   e := Secp256k1()
   crv := e.Params()
-  M := hashToInt(msg, e)
+  // M := hashToInt(msg, e)
 
   // onlooker verifies signature (§4.5)
   sG := ScalarBaseMult(sig.S)
@@ -212,52 +204,35 @@ func BlindVerify(Q *ecdsa.PublicKey, msg []byte, sig *BlindSignature) bool {
   return KeysEqual(sG, rmQplusF)
 }
 
-// Public returns the public key corresponding to priv.
-func (priv *PrivateKey) Public() crypto.PublicKey {
-  return &priv.PublicKey
-}
-
-// Sign signs msg with priv, reading randomness from rand. This method is
-// intended to support keys where the private part is kept in, for example, a
-// hardware module. Common uses should use the Sign function in this package
-// directly.
-func (priv *PrivateKey) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) ([]byte, error) {
-  r, s, err := Sign(rand, priv, msg)
-  if err != nil {
-    return nil, err
-  }
-
-  return asn1.Marshal(ecdsaSignature{r, s})
-}
 
 var one = new(big.Int).SetInt64(1)
 
 // RandFieldElement returns a random element of the field underlying the given
 // curve using the procedure given in [NSA] A.2.1.
-func RandFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) {
-  params := c.Params()
-  b := make([]byte, params.BitSize/8+8)
+func RandFieldElement(rand io.Reader) (k *big.Int, err error) {
+  crv := Secp256k1().Params()
+  b := make([]byte, crv.BitSize/8+8)
   _, err = io.ReadFull(rand, b)
   if err != nil {
     return
   }
 
   k = new(big.Int).SetBytes(b)
-  n := new(big.Int).Sub(params.N, one)
+  n := new(big.Int).Sub(crv.N, one)
   k.Mod(k, n)
   k.Add(k, one)
   return
 }
 
 // GenerateKey generates a public and private key pair.
-func GenerateKey(rand io.Reader) (*PrivateKey, error) {
+func GenerateKey(rand io.Reader) (*ecdsa.PrivateKey, error) {
   c := Secp256k1();
-  k, err := RandFieldElement(c, rand)
+  k, err := RandFieldElement(rand)
   if err != nil {
     return nil, err
   }
 
-  priv := new(PrivateKey)
+  priv := new(ecdsa.PrivateKey)
   priv.PublicKey.Curve = c
   priv.D = k
   priv.PublicKey.X, priv.PublicKey.Y = c.ScalarBaseMult(k.Bytes())
@@ -324,6 +299,12 @@ func Add(a, b *ecdsa.PublicKey) *ecdsa.PublicKey {
   key.Curve = Secp256k1()
   key.X, key.Y = Secp256k1().Add(a.X, a.Y, b.X, b.Y)
   return key
+}
+
+func maybePanic(err error) {
+  if err != nil {
+    panic(err)
+  }
 }
 
 type zr struct {

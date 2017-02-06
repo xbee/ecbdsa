@@ -14,24 +14,38 @@ func main() {
 	fmt.Printf("m = %x\n", m)
 
 	// requester: ask signer to start the protocol
-	Q, R := ecbdsa.NewSession(signer)
+	
+	_ = signer.GenerateSessionKeyPair()
 	fmt.Println("")
 
-	// requester: ecbdsa message
-	mHat := ecbdsa.BlindMessage(requester, Q, R, m)
+	Q, R := signer.Q, signer.R
+	if Q != nil && R != nil {
+		fmt.Println("Q = ", Q)
+		fmt.Println("R = ", R)
 
-	// signer: create ecbdsa signature
-	sHat := ecbdsa.BlindSign(signer, R, mHat)
+		// requester: generate blindkey
+		requester.GenerateBlindKey(R, Q)
+		// requester: ecbdsa message
+		mHat := requester.BlindMessage(m)
 
-	// requester extracts real signature
-	sig := ecbdsa.UnblindMessage(requester, sHat)
-	sig.M = m
-	fmt.Printf("sig =\t%x\n\t%x\n", sig.S, sig.F.X)
+		// signer: create ecbdsa signature
+		sHat := signer.BlindSign(mHat)
 
-	// onlooker verifies signature
-	if ecbdsa.BlindVerify(Q, sig) {
-		fmt.Printf("valid signature\n")
+		// requester extracts real signature
+		sig := requester.UnblindMessage(sHat)
+		// sig.M = m
+		fmt.Printf("sig =\t%x\n\t%x\n", sig.S, sig.F.X)
+
+		// onlooker verifies signature
+		if ecbdsa.BlindVerify(Q, m, sig) {
+			fmt.Printf("valid signature\n")
+		}
+		
+		return
 	}
+
+	fmt.Println("signer.GenerateSessionKeyPair failed!")
+	
 }
 
 func maybePanic(err error) {
