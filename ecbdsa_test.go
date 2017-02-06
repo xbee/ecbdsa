@@ -8,6 +8,9 @@ import (
 )
 
 func Test_BlindSignature(t *testing.T) {
+	SetDefaultFailureMode(FailureContinues)
+	defer SetDefaultFailureMode(FailureHalts)
+
 	var signer *Signer
 	var requester *Requester
 
@@ -16,10 +19,22 @@ func Test_BlindSignature(t *testing.T) {
 
 		signer = NewSigner()
 		requester = NewRequester()
+		crv := Secp256k1().Params()
+		_ = crv.N
 
-		Convey("When signer's priv and pub key should not be nil", func() {
+		Convey("Now signer's priv and pub key should not be nil", func() {
 			So(signer.d, ShouldNotEqual, nil)
+			So(signer.k, ShouldEqual, nil)
+			// So(signer.d, ShouldBeGreaterThan, )
+			// So(*(signer.d), ShouldBeLessThan, crv.N)
 			So(signer.Q, ShouldNotEqual, nil)
+		})
+
+		Convey("Now requester's blindkey should be nil and a,b,c should not be nil", func() {
+			So(requester.F, ShouldEqual, nil)
+			So(requester.a, ShouldNotEqual, nil)
+			So(requester.b, ShouldNotEqual, nil)
+			So(requester.c, ShouldNotEqual, nil)
 		})
 
 		// requester: message that needs to be ecbdsa signed
@@ -28,20 +43,33 @@ func Test_BlindSignature(t *testing.T) {
 		// fmt.Printf("m = %x\n", m)
 
 		// requester: ask signer to start the protocol
-
 		R := signer.GenerateSessionKeyPair()
-		// fmt.Println("")
-
 		Q := signer.Q
-		Convey("Signer's Q and R should not be nil", func() {
-			So(Q, ShouldNotEqual, nil)
-			So(R, ShouldNotEqual, nil)
+		Convey("When signer generated session keypair", func() {
+			Convey("Q, R should not nil", func() {
+				So(R, ShouldNotEqual, nil)
+				So(Q, ShouldNotEqual, nil)
+			})
 		})
+		
+		// fmt.Println("")
 
 		// requester: generate blindkey
 		requester.GenerateBlindKey(R, Q)
+		Convey("When requester generated blindkey", func() {
+			Convey("Requester's blindkey should not nil", func() {
+				So(requester.F, ShouldNotEqual, nil)
+			})
+		})
+
 		// requester: ecbdsa message
 		mHat := requester.BlindMessage(m)
+		Convey("After requester blinded message", func() {
+			Convey("Message should have been hiddened", func() {
+				So(mHat, ShouldNotEqual, 0)
+				So(mHat, ShouldNotEqual, m)
+			})
+		})
 
 		// signer: create ecbdsa signature
 		sHat := signer.BlindSign(mHat)

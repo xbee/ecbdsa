@@ -75,11 +75,6 @@ func NewRequester() *Requester {
 	return alice
 }
 
-// Public returns the public key corresponding to priv.
-func (alice *Requester) Public() *ecdsa.PublicKey {
-	return alice.F
-}
-
 // Alice computes F = (b^-1)R + a(b^-1)Q + cG
 func (alice *Requester) GenerateBlindKey(R, Q *ecdsa.PublicKey) {
 
