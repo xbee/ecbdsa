@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func Test_Blind(t *testing.T) {
+func Test_BlindSignature(t *testing.T) {
 	var signer *Signer
 	var requester *Requester
 

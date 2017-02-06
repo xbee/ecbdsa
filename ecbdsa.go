@@ -18,7 +18,7 @@ import (
 	// "encoding/asn1"
 	"crypto/rand"
 	"errors"
-	"fmt"
+	// "fmt"
 	"io"
 	"math/big"
 )
@@ -147,7 +147,7 @@ func NewSigner() *Signer {
 	maybePanic(err)
 	bob.d = keys.D
 	bob.Q = &keys.PublicKey
-	fmt.Printf("Signer:\t%x\n\t%x\n", bob.d, bob.Q.X)
+	// fmt.Printf("Signer:\t%x\n\t%x\n", bob.d, bob.Q.X)
 
 	return bob
 }
@@ -193,9 +193,9 @@ func BlindVerify(Q *ecdsa.PublicKey, M *big.Int, sig *BlindSignature) bool {
 	rmQ := ScalarMult(rm, Q)
 	rmQplusF := Add(rmQ, sig.F)
 
-	fmt.Println("")
-	fmt.Printf("sG      = %x\n", sG.X)
-	fmt.Printf("rmQ + F = %x\n", rmQplusF.X)
+	// fmt.Println("")
+	// fmt.Printf("sG      = %x\n", sG.X)
+	// fmt.Printf("rmQ + F = %x\n", rmQplusF.X)
 	return KeysEqual(sG, rmQplusF)
 }
 
