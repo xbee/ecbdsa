@@ -48,6 +48,9 @@ type Requester struct {
 	a, b, c *big.Int
 	bInv    *big.Int
 
+  d *big.Int // priv key
+  Q *ecdsa.PublicKey // public key
+
 	// shareable stuff
 	F  *ecdsa.PublicKey
 	Mb *big.Int // called m̂ in the paper
@@ -60,8 +63,6 @@ func NewRequester() *Requester {
 
 	alice := new(Requester)
 
-	// TODO: need to generate pub and priv keys
-
 	// requester's three blinding factors (§4.2)
 	var err error
 	alice.a, err = RandFieldElement(rand.Reader)
@@ -71,6 +72,12 @@ func NewRequester() *Requester {
 	alice.c, err = RandFieldElement(rand.Reader)
 	maybePanic(err)
 	alice.bInv = new(big.Int).ModInverse(alice.b, crv.N)
+
+  // generate priv and pub keys , just for ecdh 
+  request, err := GenerateKey(rand.Reader)
+  maybePanic(err)
+  alice.d = request.D
+  alice.Q = &request.PublicKey
 
 	return alice
 }
