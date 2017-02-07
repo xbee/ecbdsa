@@ -2,14 +2,63 @@ package ecbdsa
 
 import (
 	"crypto/rand"
+	// "crypto/elliptic"
 	"fmt"
 	. "github.com/smartystreets/goconvey/convey"
 	"testing"
 )
 
+// var c elliptic.Curve = Secp256k1()
+
+
+func Test_KeyGeneration(t *testing.T) {
+	c := Secp256k1()
+
+	Convey("When generating key", t, func() {
+
+		priv, err := GenerateKey(rand.Reader)
+		Convey("It should not return error.", func() {
+			So(err, ShouldEqual, nil)
+		})
+		
+		Convey("Point should exists on secp256k1 curve.", func() {
+			So(c.IsOnCurve(priv.PublicKey.X, priv.PublicKey.Y), ShouldEqual, true)
+		})
+
+	})
+}
+
+
+func Test_NewSigner(t *testing.T) {
+	var signer *Signer
+	// Only pass t into top-level Convey calls
+	Convey("Given a fresh signer", t, func() {
+
+		signer = NewSigner()
+
+		Convey("Now signer's priv and pub key should not be nil", func() {
+			So(signer.d, ShouldNotEqual, nil)
+			So(signer.k, ShouldEqual, nil)
+			// So(signer.d, ShouldBeGreaterThan, )
+			// So(*(signer.d), ShouldBeLessThan, crv.N)
+			So(signer.Q, ShouldNotEqual, nil)
+		})
+
+		R := signer.GenerateSessionKeyPair()
+		Q := signer.Q
+		Convey("When signer generated session keypair", func() {
+			Convey("Q, R should not nil", func() {
+				So(R, ShouldNotEqual, nil)
+				So(Q, ShouldNotEqual, nil)
+			})
+		})
+	})
+}
+
+
 func Test_BlindSignature(t *testing.T) {
-	SetDefaultFailureMode(FailureContinues)
-	defer SetDefaultFailureMode(FailureHalts)
+	// SetDefaultFailureMode(FailureContinues)
+	// defer SetDefaultFailureMode(FailureHalts)
 
 	var signer *Signer
 	var requester *Requester
