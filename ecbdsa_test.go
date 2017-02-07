@@ -2,17 +2,21 @@ package ecbdsa
 
 import (
 	"crypto/rand"
-	// "crypto/elliptic"
+	"crypto/elliptic"
 	"fmt"
 	. "github.com/smartystreets/goconvey/convey"
 	"testing"
 )
 
-// var c elliptic.Curve = Secp256k1()
+var crv elliptic.Curve
+
+
+func init() {
+	crv = Secp256k1() // 不能直接在声明的时候赋值，why？
+}
 
 
 func Test_KeyGeneration(t *testing.T) {
-	c := Secp256k1()
 
 	Convey("When generating key", t, func() {
 
@@ -22,7 +26,7 @@ func Test_KeyGeneration(t *testing.T) {
 		})
 		
 		Convey("Point should exists on secp256k1 curve.", func() {
-			So(c.IsOnCurve(priv.PublicKey.X, priv.PublicKey.Y), ShouldEqual, true)
+			So(crv.IsOnCurve(priv.PublicKey.X, priv.PublicKey.Y), ShouldEqual, true)
 		})
 
 	})
@@ -50,6 +54,11 @@ func Test_NewSigner(t *testing.T) {
 			Convey("Q, R should not nil", func() {
 				So(R, ShouldNotEqual, nil)
 				So(Q, ShouldNotEqual, nil)
+			})
+
+			Convey("Point should exists on secp256k1 curve.", func() {
+				So(crv.IsOnCurve(Q.X, Q.Y), ShouldEqual, true)
+				So(crv.IsOnCurve(R.X, R.Y), ShouldEqual, true)
 			})
 		})
 	})
@@ -108,6 +117,10 @@ func Test_BlindSignature(t *testing.T) {
 		Convey("When requester generated blindkey", func() {
 			Convey("Requester's blindkey should not nil", func() {
 				So(requester.F, ShouldNotEqual, nil)
+			})
+
+			SkipConvey("Point should exists on secp256k1 curve.", func() {
+				So(crv.IsOnCurve(requester.F.X, requester.F.Y), ShouldEqual, true)
 			})
 		})
 
@@ -178,6 +191,5 @@ func Benchmark_BlindSignature(b *testing.B) {
 			return
 		}
 
-		// b.Error("测试不通过")
 	}
 }
