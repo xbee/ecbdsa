@@ -24,7 +24,7 @@ func main() {
 		fmt.Println("R = ", R)
 
 		// requester: generate blindkey
-		requester.GenerateBlindKey(R, Q)
+		requester.GenerateBlindFactor(R, Q)
 		// requester: ecbdsa message
 		mHat := requester.BlindMessage(m)
 

@@ -113,7 +113,7 @@ func Test_BlindSignature(t *testing.T) {
 		// fmt.Println("")
 
 		// requester: generate blindkey
-		requester.GenerateBlindKey(R, Q)
+		requester.GenerateBlindFactor(R, Q)
 		Convey("When requester generated blindkey", func() {
 			Convey("Requester's blindkey should not nil", func() {
 				So(requester.F, ShouldNotEqual, nil)
@@ -170,7 +170,7 @@ func Benchmark_BlindSignature(b *testing.B) {
 			// fmt.Println("R = ", R)
 
 			// requester: generate blindkey
-			requester.GenerateBlindKey(R, Q)
+			requester.GenerateBlindFactor(R, Q)
 			// requester: ecbdsa message
 			mHat := requester.BlindMessage(m)
 

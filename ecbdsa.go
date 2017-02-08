@@ -83,7 +83,7 @@ func NewRequester() *Requester {
 }
 
 // Alice computes F = (b^-1)R + a(b^-1)Q + cG
-func (alice *Requester) GenerateBlindKey(R, Q *ecdsa.PublicKey) {
+func (alice *Requester) GenerateBlindFactor(R, Q *ecdsa.PublicKey) {
 
 	crv := Secp256k1().Params()
 	// generate F which is not equal to O (§4.2)
