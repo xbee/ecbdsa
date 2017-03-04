@@ -5,7 +5,7 @@ Utility functions for Elliptic Curve Blind Digital Signature Algorithm(ECBDSA).
 
 Install with
 
-    go get github.com/conseweb/
+    go get github.com/conseweb/ecbdsa
 
 
 Test it with [GoConvey](https://github.com/smartystreets/goconvey)
